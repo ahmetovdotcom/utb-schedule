@@ -15,6 +15,20 @@ const editVersion = ref(null)
 const editId = ref(null), refKind = ref('groups'), referenceSearch = ref(''), groupSearch = ref('')
 const form = reactive({ teacher_id: '', subject_id: '', group_ids: [], lesson_type: 'practice' })
 const newRef = reactive({ name: '', department: '', capacity: 30, students: 20, course: 1, building: 'Главный корпус', room_type: 'classroom' })
+const exportCourse = ref(''), exporting = ref(false)
+const exportCourses = computed(()=>[...new Set(state.references.filter(r=>r.kind==='groups').map(g=>g.course))].sort((a,b)=>a-b))
+watch(exportCourses, courses=>{if(!courses.includes(exportCourse.value))exportCourse.value=courses[0] ?? ''})
+async function exportExcel(){
+  exporting.value=true;error.value=''
+  try{
+    const response=await fetch(`/api/export.xlsx?course=${exportCourse.value}`)
+    if(response.status===401)expireSession()
+    if(!response.ok){const body=await response.json();throw body.detail || 'Не удалось выгрузить расписание'}
+    const url=URL.createObjectURL(await response.blob())
+    const link=document.createElement('a');link.href=url;link.download=`Расписание-${exportCourse.value || 'без'}-курс.xlsx`
+    document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)
+  }catch(e){error.value=message(e)}finally{exporting.value=false}
+}
 const hours = Array.from({length:13},(_,i)=>i+8)
 const kinds = { groups: 'Группы', teachers: 'Преподаватели', subjects: 'Предметы', rooms: 'Кабинеты', buildings: 'Корпуса', departments: 'Кафедры' }
 const typeLabels = { lecture: 'Лекция', practice: 'Практика', lab: 'Лабораторная' }
@@ -148,6 +162,7 @@ onUnmounted(()=>{events?.close();window.removeEventListener('click',dismissConte
     <p v-if="loading">Загружаем расписание…</p>
     <section v-else-if="page!=='analytics' && !state.references.length" class="empty"><span>▦</span><h2>Начните с чистого листа</h2><p>Добавьте справочники или попробуйте редактор на небольшом примере.</p><button class="primary" @click="page='references'">Заполнить справочники</button> <button class="outline" :disabled="busy" @click="demo">Загрузить пример</button></section>
     <template v-if="page==='schedule' && state.references.length">
+      <div class="toolbar export-toolbar"><span class="muted">Excel по кафедрам · все группы выбранного курса</span><div class="export-controls"><select v-model="exportCourse" aria-label="Курс для выгрузки" :disabled="exporting"><option v-for="course in exportCourses" :key="course" :value="course">{{course ? course + ' курс' : 'Курс не указан'}}</option></select><button class="outline" :disabled="exporting || exportCourse === ''" @click="exportExcel">{{exporting?'Выгружаем…':'Скачать Excel'}}</button></div></div>
       <div class="toolbar"><div class="segmented"><button v-for="(label,key) in {rooms:'По кабинетам',groups:'Неделя группы',teachers:'Неделя преподавателя'}" :class="{active:view===key}" @click="view=key">{{label}}</button></div><span class="muted">Занятий в расписании: {{state.lessons.length}}</span></div>
       <div v-if="view==='rooms'" class="workspace">
         <section class="board"><div class="board-head"><div class="days"><button v-for="(d,i) in state.days" :class="{active:day===i+1}" @click="chooseDay(i+1)">{{['Пн','Вт','Ср','Чт','Пт','Сб'][i]}}</button></div><select v-model="building" aria-label="Корпус"><option value="">Все корпуса</option><option v-for="b in buildings">{{b}}</option></select><input v-model="search" placeholder="Найти кабинет…" aria-label="Поиск кабинета"></div>

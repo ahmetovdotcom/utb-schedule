@@ -74,14 +74,16 @@ class ScheduleTests(unittest.TestCase):
         self.assertTrue(self.client.get('/api/state').json()['lessons'][0]['warnings'])
 
     def test_export_course_and_literal_cells(self):
+        with TestClient(main.app) as anonymous:
+            self.assertEqual(anonymous.get('/api/export.xlsx?course=2').status_code,401)
         self.client.post('/api/references/groups',json={'name':'=1+1','course':2,'department':'Другая'})
         response=self.client.get('/api/export.xlsx?course=2')
         self.assertEqual(response.status_code,200)
         book=load_workbook(BytesIO(response.content))
         self.assertEqual(set(book.sheetnames),{'Химия','Другая'})
-        self.assertEqual(book['Другая']['C1'].value,'=1+1')
-        self.assertEqual(book['Другая']['C1'].data_type,'s')
-        self.assertIn('Химия',book['Химия']['C3'].value)
+        self.assertEqual(book['Другая']['B11'].value,'=1+1 (20)')
+        self.assertEqual(book['Другая']['B11'].data_type,'s')
+        self.assertIn('Химия',book['Химия']['B15'].value)
         self.assertEqual(self.client.get('/api/export.xlsx?course=8').status_code,404)
 
 if __name__=='__main__': unittest.main()

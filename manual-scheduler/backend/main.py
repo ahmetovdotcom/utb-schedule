@@ -1,9 +1,7 @@
 from contextlib import contextmanager
-from io import BytesIO
 import json
 import os
 from pathlib import Path
-import re
 import sqlite3
 import asyncio
 import time
@@ -285,38 +283,17 @@ def delete_lesson(lesson_id: int, expected_version: str = Query()):
     return {'ok': True}
 
 @app.get('/api/export.xlsx')
-def export(course: int = Query(ge=1, le=8)):
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
+def export(course: int = Query(ge=0, le=8)):
+    from excel_export import build_workbook
+    from fastapi.responses import Response
     with database() as con:
         all_refs, all_lessons = refs(con), lessons(con)
-    groups = [r for r in all_refs.values() if r['kind'] == 'groups' and r['course'] == course]
-    if not groups: raise HTTPException(404, 'Для этого курса нет групп')
-    book = Workbook(); book.remove(book.active)
-    for department in sorted({g['department'] or 'Без кафедры' for g in groups}):
-        title = re.sub(r'[\\/*?:\[\]]', '_', department).strip("'")[:31] or 'Кафедра'
-        sheet = book.create_sheet(title)
-        selected = [g for g in groups if (g['department'] or 'Без кафедры') == department]
-        sheet.append(['День', 'Время', *[g['name'] for g in selected]])
-        for day in range(1, 7):
-            for hour in range(8, 21):
-                cells = [DAYS[day-1], f'{hour}:00']
-                for group in selected:
-                    entries = [l for l in all_lessons if l['day'] == day and l['slot'] == hour and group['id'] in l['group_ids']]
-                    cells.append('\n'.join(f"{all_refs[l['subject_id']]['name']}\n{all_refs[l['teacher_id']]['name']} · ауд. {all_refs[l['room_id']]['name']}" for l in entries))
-                sheet.append(cells)
-                sheet.row_dimensions[sheet.max_row].height = 55
-        for row in sheet:
-            for cell in row:
-                if isinstance(cell.value, str): cell.data_type = 's'
-                cell.alignment = Alignment(wrap_text=True, vertical='center')
-        for cell in sheet[1]:
-            cell.font = Font(bold=True, color='FFFFFF'); cell.fill = PatternFill('solid', fgColor='245D50')
-        from openpyxl.utils import get_column_letter
-        for i in range(1, len(selected)+3): sheet.column_dimensions[get_column_letter(i)].width = 32 if i > 2 else 18
-        sheet.freeze_panes = 'C2'
-    output = BytesIO(); book.save(output); output.seek(0)
-    return StreamingResponse(output, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': f'attachment; filename="course-{course}.xlsx"'})
+    try:
+        content = build_workbook(course, all_refs, all_lessons)
+    except ValueError as error:
+        raise HTTPException(404 if str(error) == 'Для этого курса нет групп' else 422, str(error)) from error
+    return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename="course-{course}.xlsx"', 'Cache-Control': 'no-store'})
 
 @app.post('/api/demo')
 def demo():
