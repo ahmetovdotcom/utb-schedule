@@ -1,0 +1,11 @@
+services:
+  gateway:
+    environment:
+      STUDENT_DOMAIN: ${STUDENT_DOMAIN:-okak.asia}
+      EDITOR_DOMAIN: ${EDITOR_DOMAIN:-app.okak.asia}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.server:/etc/caddy/Caddyfile:ro

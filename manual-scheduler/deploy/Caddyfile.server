@@ -1,0 +1,8 @@
+{$STUDENT_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy student-web:80
+}
+{$EDITOR_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy staff-web:80
+}

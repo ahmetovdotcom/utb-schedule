@@ -1,0 +1,119 @@
+name: ${COMPOSE_PROJECT_NAME:-okak}
+
+services:
+  student-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: okak
+      POSTGRES_DB: okak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./deploy.sh init first}
+    volumes:
+      - student_data:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 30s
+
+  student-api:
+    build: ../../UTB2/backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: okak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run ./deploy.sh init first}
+      POSTGRES_HOST: student-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: okak
+      PUBLISH_SECRET_KEY: ${PUBLISH_SECRET_KEY:?Run ./deploy.sh init first}
+    depends_on:
+      student-db:
+        condition: service_healthy
+    networks: [private]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/publication', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  staff-api:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      SCHEDULER_DB: /data/schedule.db
+      COOKIE_SECURE: "true"
+      STUDENT_PUBLISH_URL: http://student-api:8000/api/v1/manual-publication
+      STUDENT_PUBLISH_ALLOW_INTERNAL_HTTP: "true"
+      PUBLISH_SECRET_KEY: ${PUBLISH_SECRET_KEY:?Run ./deploy.sh init first}
+    volumes:
+      - manual_data:/data
+    depends_on:
+      student-api:
+        condition: service_healthy
+    networks: [private]
+    healthcheck:
+      test: [CMD, python, -c, "import http.client; c = http.client.HTTPConnection('127.0.0.1', 8000, timeout=3); c.request('GET', '/api/auth/me'); assert c.getresponse().status == 401"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  student-web:
+    build: ../../UTB2/frontend
+    restart: unless-stopped
+    volumes:
+      - ./nginx-student.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      student-api:
+        condition: service_healthy
+    networks: [private]
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  staff-web:
+    build: ../frontend
+    restart: unless-stopped
+    depends_on:
+      staff-api:
+        condition: service_healthy
+    networks: [private]
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1/healthz]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      student-web:
+        condition: service_healthy
+      staff-web:
+        condition: service_healthy
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [public, private]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:2019/config/']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+networks:
+  public:
+  private:
+    internal: true
+
+volumes:
+  student_data:
+  manual_data:
+  caddy_data:
+  caddy_config:

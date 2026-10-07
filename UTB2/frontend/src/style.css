@@ -1,0 +1,14 @@
+/* Отключаем жесты масштабирования на всем документе и интерактивных элементах */
+html, body, button, input, select, a {
+  touch-action: manipulation;
+
+  /* Дополнительно: отключаем выделение текста при частых тапах */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Разрешаем выделение текста только в инпутах, чтобы можно было вводить название группы */
+input {
+  -webkit-user-select: text;
+  user-select: text;
+}

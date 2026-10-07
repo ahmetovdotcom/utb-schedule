@@ -1,0 +1,11 @@
+{
+	auto_https off
+}
+:8080 {
+	encode zstd gzip
+	reverse_proxy student-web:80
+}
+:8081 {
+	encode zstd gzip
+	reverse_proxy staff-web:80
+}
