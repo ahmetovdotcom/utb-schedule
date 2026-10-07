@@ -2,10 +2,17 @@ from io import BytesIO
 from copy import copy
 import unittest
 from openpyxl import load_workbook
-from excel_export import build_workbook, TEMPLATE
+from excel_export import build_workbook, room_label, TEMPLATE
 
 
 class ExcelTests(unittest.TestCase):
+    def test_room_building_is_not_duplicated(self):
+        for name in ['302', '1 блок / 302', '1 блок/302', '1 блок · 302', '1 блок/1 блок / 302']:
+            with self.subTest(name=name):
+                self.assertEqual(room_label({'building':'1 блок', 'name':name}), '1 блок / 302')
+        self.assertEqual(room_label({'building':'', 'name':'Спортзал'}), 'Спортзал')
+        self.assertEqual(room_label({'building':'1', 'name':'101'}), '1 / 101')
+
     def test_complete_header_matches_supplied_template(self):
         refs = {1: dict(id=1, kind='groups', name='Тест', course=1, students=20, department='Кафедра')}
         sheet = load_workbook(BytesIO(build_workbook(1, refs, []))).worksheets[0]
@@ -28,7 +35,7 @@ class ExcelTests(unittest.TestCase):
         refs = {
             1: dict(id=1, kind='subjects', name='=Предмет'),
             2: dict(id=2, kind='teachers', name='Преподаватель'),
-            3: dict(id=3, kind='rooms', name='406', building='1'),
+            3: dict(id=3, kind='rooms', name='1 блок / 406', building='1 блок'),
         }
         for index in range(10, 20):
             refs[index] = dict(id=index, kind='groups', name=f'Г-{index}', students=20, course=3, department='Кафедра')
@@ -48,7 +55,7 @@ class ExcelTests(unittest.TestCase):
             target = next(c.row for c in sheet['A'] if c.value == '20.00-20.50')
             self.assertEqual(sheet.cell(target,2).value, '=Предмет-лек. Преподаватель')
             self.assertEqual(sheet.cell(target,2).data_type, 's')
-            self.assertEqual(sheet.cell(target,5).value, '1/406')
+            self.assertEqual(sheet.cell(target,5).value, '1 блок / 406')
         sheet = book['Кафедра']
         self.assertEqual(sheet['AL11'].value, 'Г-19')
         target = next(c.row for c in sheet['A'] if c.value == '20.00-20.50')

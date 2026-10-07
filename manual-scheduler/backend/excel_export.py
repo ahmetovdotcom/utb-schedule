@@ -16,6 +16,17 @@ DAYS = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕР�
 TYPES = {'lecture': 'лек.', 'practice': 'пр.', 'lab': 'лаб.'}
 
 
+def room_label(room):
+    building = room.get('building', '').strip()
+    name = room['name'].strip()
+    if not building:
+        return name
+    prefix = re.compile(r'^' + re.escape(building) + r'\s*[/·]\s*', re.IGNORECASE)
+    while prefix.match(name):
+        name = prefix.sub('', name, count=1).strip()
+    return f'{building} / {name}' if name else building
+
+
 def text(sheet, row, col, value):
     cell = sheet.cell(row, col)
     cell.value = ILLEGAL_CHARACTERS_RE.sub('', str(value))
@@ -110,7 +121,7 @@ def build_workbook(course, references, lessons):
                         for lesson in entries:
                             descriptions.append(f"{references[lesson['subject_id']]['name']}-{TYPES[lesson['lesson_type']]} {references[lesson['teacher_id']]['name']}")
                             room = references[lesson['room_id']]
-                            rooms.append('/'.join(filter(None, [room.get('building', ''), room['name']])))
+                            rooms.append(room_label(room))
                         text(sheet, row, 2 + 4 * index, '\n'.join(descriptions))
                         text(sheet, row, 5 + 4 * index, '\n'.join(rooms))
         for merged in source.merged_cells.ranges:
