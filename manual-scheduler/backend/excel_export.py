@@ -9,6 +9,7 @@ from uuid import uuid4
 from openpyxl import load_workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.views import Selection
 
 TEMPLATE = Path(__file__).with_name('templates') / 'timetable.xlsx'
 DAYS = ['ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА']
@@ -45,6 +46,8 @@ def build_workbook(course, references, lessons):
         raise ValueError('Для этого курса нет групп')
     headings = {DAYS.index(str(source.cell(r, 1).value)) + 1: r
                 for r in range(13, source.max_row + 1) if str(source.cell(r, 1).value) in DAYS}
+    table_last_col = max(m.max_col for m in source.merged_cells.ranges if m.min_row == 13)
+    header_last_col = max(m.max_col for m in source.merged_cells.ranges if m.min_row < 11)
     footer = max(r for r in range(13, source.max_row + 1)
                  if re.fullmatch(r'\d{2}\.\d{2}-\d{2}\.\d{2}', str(source.cell(r, 1).value))) + 1
     by_cell = defaultdict(list)
@@ -58,7 +61,7 @@ def build_workbook(course, references, lessons):
         title = sheet_name(department or 'Без кафедры', used)
         sheet = book.create_sheet(uuid4().hex[:31])
         output_sheets.append((sheet, title))
-        last_col = max(33, 1 + 4 * len(groups))
+        last_col = max(table_last_col, 1 + 4 * len(groups))
         if last_col > 16384:
             raise ValueError('Слишком много групп для одного листа Excel')
         ids = {g['id'] for g in groups}
@@ -83,7 +86,9 @@ def build_workbook(course, references, lessons):
             sheet.row_dimensions[row] = copy(source.row_dimensions[src_row])
             sheet.row_dimensions[row].index = row
             for col in range(1, max(last_col, source.max_column) + 1):
-                src_col = col if col <= 33 else 2 + (col - 34) % 4
+                src_col = col if col <= table_last_col else 2 + (col - table_last_col - 1) % 4
+                if (day is None or col > last_col) and col <= source.max_column:
+                    src_col = col
                 cell = sheet.cell(row, col)
                 cell._style = copy(source.cell(src_row, src_col)._style)
                 if day is None and (src_row < 11 or src_row >= footer) and col <= source.max_column:
@@ -110,29 +115,38 @@ def build_workbook(course, references, lessons):
                         text(sheet, row, 5 + 4 * index, '\n'.join(rooms))
         for merged in source.merged_cells.ranges:
             if merged.min_row in origin and merged.max_row in origin and merged.min_row != 11 and merged.min_row != 12:
-                right = last_col - 1 if merged.max_col == 32 and merged.min_row <= 5 else merged.max_col
+                right = max(header_last_col, last_col) if merged.min_col == 1 and merged.min_row <= 5 else merged.max_col
                 sheet.merge_cells(start_row=origin[merged.min_row], start_column=merged.min_col,
                                   end_row=origin[merged.max_row], end_column=right)
         sheet.merge_cells('A11:A12')
         text(sheet, 11, 1, source['A11'].value)
         for index, col in enumerate(range(2, last_col + 1, 4)):
-            sheet.merge_cells(start_row=11, start_column=col, end_row=11, end_column=col + 3)
+            header_end = next((m.max_col for m in source.merged_cells.ranges
+                               if m.min_row == 11 and m.max_row == 11 and m.min_col == col), col + 3)
+            sheet.merge_cells(start_row=11, start_column=col, end_row=11, end_column=header_end)
             sheet.merge_cells(start_row=12, start_column=col, end_row=12, end_column=col + 2)
-            text(sheet, 12, col, source['B12'].value)
-            text(sheet, 12, col + 3, source['E12'].value)
+            text(sheet, 12, col, source.cell(12, col if col <= table_last_col else 2).value)
+            text(sheet, 12, col + 3, source.cell(12, col + 3 if col <= table_last_col else 5).value)
             if index < len(groups):
                 group = groups[index]
-                text(sheet, 11, col, f"{group['name']} ({group['students']})")
-        text(sheet, 4, 6, re.sub(r'^\d+ курс', f'{course} курс' if course else 'Курс не указан', source['F4'].value))
-        text(sheet, 5, 6, re.sub(r'^\d+ семестр', f'{course * 2 - 1} семестр' if course else 'Семестр не указан', source['F5'].value))
+                text(sheet, 11, col, group['name'])
+        text(sheet, 3, 1, re.sub(r'\d+ КУРСА', f'{course} КУРСА' if course else 'КУРС НЕ УКАЗАН', source['A3'].value))
+        text(sheet, 4, 1, re.sub(r'^\d+ семестр', f'{course * 2 - 1} семестр' if course else 'Семестр не указан', source['A4'].value))
         for key, dimension in source.column_dimensions.items():
             sheet.column_dimensions[key] = copy(dimension)
-        for col in range(34, last_col + 1):
-            sheet.column_dimensions[get_column_letter(col)].width = source.column_dimensions['B'].width
+        for col in range(table_last_col + 1, last_col + 1):
+            src_col = 2 + (col - table_last_col - 1) % 4
+            sheet.column_dimensions[get_column_letter(col)].width = next(d.width for d in source.column_dimensions.values() if d.min <= src_col <= d.max)
         for attr in ('sheet_format', 'sheet_properties', 'views', 'page_setup', 'page_margins', 'print_options', 'HeaderFooter'):
             setattr(sheet, attr, deepcopy(getattr(source, attr)))
-        sheet.print_area = f'A1:{get_column_letter(last_col)}{len(plan)}'
+        sheet.print_area = f'A1:{get_column_letter(max(header_last_col, last_col))}{len(plan)}'
         sheet.print_title_rows = '11:12'
+        # Templates may be saved scrolled down in page-break preview. Always
+        # open the export at its header instead of inheriting that position.
+        sheet.sheet_view.view = 'normal'
+        sheet.sheet_view.topLeftCell = 'A1'
+        sheet.sheet_view.pane = None
+        sheet.sheet_view.selection = [Selection(activeCell='A1', sqref='A1')]
         sheet.freeze_panes = 'B13'
     for sheet in originals:
         book.remove(sheet)

@@ -81,7 +81,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         book=load_workbook(BytesIO(response.content))
         self.assertEqual(set(book.sheetnames),{'Химия','Другая'})
-        self.assertEqual(book['Другая']['B11'].value,'=1+1 (20)')
+        self.assertEqual(book['Другая']['B11'].value,'=1+1')
         self.assertEqual(book['Другая']['B11'].data_type,'s')
         self.assertIn('Химия',book['Химия']['B15'].value)
         self.assertEqual(self.client.get('/api/export.xlsx?course=8').status_code,404)

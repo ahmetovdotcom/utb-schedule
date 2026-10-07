@@ -6,6 +6,24 @@ from excel_export import build_workbook, TEMPLATE
 
 
 class ExcelTests(unittest.TestCase):
+    def test_complete_header_matches_supplied_template(self):
+        refs = {1: dict(id=1, kind='groups', name='Тест', course=1, students=20, department='Кафедра')}
+        sheet = load_workbook(BytesIO(build_workbook(1, refs, []))).worksheets[0]
+        template = load_workbook(TEMPLATE).worksheets[0]
+        for row in template.iter_rows(min_row=1, max_row=10, max_col=29):
+            for cell in row:
+                actual = sheet[cell.coordinate]
+                self.assertEqual(actual.value, cell.value, cell.coordinate)
+                self.assertEqual(copy(actual.font), copy(cell.font), cell.coordinate)
+                self.assertEqual(copy(actual.alignment), copy(cell.alignment), cell.coordinate)
+        expected = {str(m) for m in template.merged_cells.ranges if m.max_row <= 10}
+        self.assertEqual({str(m) for m in sheet.merged_cells.ranges if m.max_row <= 10}, expected)
+        self.assertIn('$AC$', str(sheet.print_area))
+        self.assertEqual(sheet.sheet_view.topLeftCell, 'A1')
+        self.assertEqual(sheet.sheet_view.view, 'normal')
+        self.assertEqual(sheet['U6'].value, 'Утверждаю')
+        self.assertEqual(sheet['A5'].value, 'для студентов, обучающихся на русском языке')
+
     def test_template_streams_empty_groups_and_extended_times(self):
         refs = {
             1: dict(id=1, kind='subjects', name='=Предмет'),
@@ -21,8 +39,8 @@ class ExcelTests(unittest.TestCase):
         self.assertEqual(book.sheetnames, ['Кафедра', 'Без кафедры'])
         original = load_workbook(TEMPLATE).worksheets[0]
         for sheet in book:
-            self.assertEqual(sheet['G1'].value, original['G1'].value)
-            self.assertEqual(copy(sheet['G1'].font), copy(original['G1'].font))
+            self.assertEqual(sheet['A1'].value, original['A1'].value)
+            self.assertEqual(copy(sheet['A1'].font), copy(original['A1'].font))
             self.assertEqual(sheet.page_setup.orientation, 'landscape')
             self.assertEqual(sheet['B12'].value, original['B12'].value)
             self.assertIn('СУББОТА', [c.value for c in sheet['A']])
@@ -32,7 +50,7 @@ class ExcelTests(unittest.TestCase):
             self.assertEqual(sheet.cell(target,2).data_type, 's')
             self.assertEqual(sheet.cell(target,5).value, '1/406')
         sheet = book['Кафедра']
-        self.assertEqual(sheet['AL11'].value, 'Г-19 (20)')
+        self.assertEqual(sheet['AL11'].value, 'Г-19')
         target = next(c.row for c in sheet['A'] if c.value == '20.00-20.50')
         self.assertEqual(sheet.cell(target,38).value, '=Предмет-лек. Преподаватель')
         self.assertIsNone(sheet.cell(target,6).value)
@@ -45,6 +63,6 @@ class ExcelTests(unittest.TestCase):
         self.assertEqual(len(book.sheetnames), len(names))
         self.assertEqual(len({s.casefold() for s in book.sheetnames}), len(names))
         self.assertTrue(all(len(s)<=31 for s in book.sheetnames))
-        self.assertEqual(book.worksheets[-1]['F4'].value.split(' на базе')[0], 'Курс не указан')
+        self.assertEqual(book.worksheets[-1]['A4'].value.split(' 2026')[0], 'Семестр не указан')
         with self.assertRaisesRegex(ValueError, 'нет групп'):
             build_workbook(8,refs,[])
