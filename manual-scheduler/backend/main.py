@@ -9,6 +9,7 @@ import asyncio
 import time
 import auth
 import publication
+from analytics import router as analytics_router
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -345,3 +346,5 @@ publication.read_refs = refs
 publication.read_lessons = lessons
 publication.validate_lesson = validate_publication_lesson
 app.include_router(publication.router)
+
+app.include_router(analytics_router)
