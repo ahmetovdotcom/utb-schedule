@@ -1,5 +1,9 @@
 <script setup>
 defineProps({
+  delivery: {type:String,default:'in_person'},
+  online_url: {type:String,default:''},
+  meeting_id: {type:String,default:''},
+  passcode: {type:String,default:''},
   groups: { type: Array, default: () => [] },
   time: {
     type: String,
@@ -14,6 +18,7 @@ defineProps({
     default: null
   }
 })
+const safeLink = value => /^https?:\/\//i.test(value) ? value : ''
 </script>
 
 <template>
@@ -22,12 +27,14 @@ defineProps({
     <div class="info">
       <h3 class="subject">{{ subject }}</h3>
       <span v-if="groups.length" class="room">Группы: {{ groups.join(', ') }}</span>
-      <span v-if="room" class="room">Аудитория: {{ room }}</span>
+      <template v-if="delivery==='online'"><span class="room">Онлайн</span><a v-if="safeLink(online_url)" :href="safeLink(online_url)" target="_blank" rel="noopener noreferrer" class="join-link">Подключиться ↗</a><span v-if="meeting_id" class="room">ID: {{meeting_id}}</span><span v-if="passcode" class="room">Код: {{passcode}}</span></template>
+      <span v-else-if="room" class="room">Аудитория: {{ room }}</span>
     </div>
   </div>
 </template>
 
 <style scoped>
+.join-link{color:#66b5ff;overflow-wrap:anywhere}.room{white-space:pre-wrap;overflow-wrap:anywhere}
 .lesson-card {
   background-color: #1c1c1e;
   border: 1px solid #2c2c2e;

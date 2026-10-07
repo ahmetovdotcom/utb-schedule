@@ -66,6 +66,22 @@ class PublicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code,200,response.text)
         return response.json()
 
+    async def test_online_publication_retains_connection_details(self):
+        row=(await self.staff.get('/api/state')).json()['lessons'][0]
+        data=dict(row,delivery='online',online_url='https://example.com/join',meeting_id='123456789',passcode='001',expected_version=row['version'])
+        response=await self.staff.put('/api/lessons/'+str(row['id']),json=data)
+        self.assertEqual(response.status_code,200,response.text)
+        await self.publish()
+        groups=(await self.students.get('/api/v1/groups')).json()
+        found=[]
+        for group in groups:
+            found.extend((await self.students.get(f"/api/v1/schedules/{group['id']}?day=1")).json())
+        self.assertTrue(found)
+        teacher=(await self.students.get(f"/api/v1/teachers/{row['teacher_id']}/schedule?day=1")).json()
+        for lesson in found+teacher:
+            for key in ('delivery','online_url','meeting_id','passcode'):
+                self.assertEqual(lesson[key],data[key])
+
     async def test_handover_streams_drafts_stable_ids_and_removal(self):
         old_source=str(uuid4())
         async with self.sessions() as s:

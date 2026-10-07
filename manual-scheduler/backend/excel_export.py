@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 import re
 from uuid import uuid4
+from online import online_label
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
@@ -120,8 +121,7 @@ def build_workbook(course, references, lessons):
                         descriptions, rooms = [], []
                         for lesson in entries:
                             descriptions.append(f"{references[lesson['subject_id']]['name']}-{TYPES[lesson['lesson_type']]} {references[lesson['teacher_id']]['name']}")
-                            room = references[lesson['room_id']]
-                            rooms.append(room_label(room))
+                            rooms.append(online_label(lesson) if lesson.get('delivery') == 'online' else room_label(references[lesson['room_id']]))
                         text(sheet, row, 2 + 4 * index, '\n'.join(descriptions))
                         text(sheet, row, 5 + 4 * index, '\n'.join(rooms))
         for merged in source.merged_cells.ranges:

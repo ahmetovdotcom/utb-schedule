@@ -23,6 +23,10 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         # Создает таблицы в БД, если их еще нет
         await conn.run_sync(Base.metadata.create_all)
+        columns = {c['name'] for c in await conn.run_sync(lambda c: inspect(c).get_columns('schedules'))}
+        for column, length, default in [('delivery',20,'in_person'), ('online_url',2048,''), ('meeting_id',100,''), ('passcode',100,'')]:
+            if column not in columns:
+                await conn.execute(text(f"ALTER TABLE schedules ADD COLUMN {column} VARCHAR({length}) NOT NULL DEFAULT '{default}'"))
         # Older publications used short VARCHAR columns. Preserve full manual names.
         if conn.dialect.name == 'postgresql':
             for table, column, length in [('groups','title',512), ('schedules','subject',512),

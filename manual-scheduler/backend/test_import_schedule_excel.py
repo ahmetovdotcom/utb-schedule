@@ -43,6 +43,17 @@ class ImportTests(unittest.TestCase):
         report=self.run_import([different])
         self.assertIn('existing_conflict',report['rows'][0]['issues'])
         self.assertEqual(report['summary']['created_lessons'],0)
+    def test_remote_import_is_idempotent(self):
+        row = dict(self.row, room='902 876 6192, код: DD57YJ')
+        self.assertEqual(self.run_import([row])['summary']['created_lessons'],1)
+        self.assertEqual(self.run_import([row])['summary']['created_lessons'],0)
+        with main.database() as con:
+            lesson=main.lessons(con)[0]
+            self.assertEqual(lesson['delivery'],'online')
+            self.assertIsNone(lesson['room_id'])
+            self.assertEqual(lesson['meeting_id'],'9028766192')
+            self.assertEqual(lesson['passcode'],'DD57YJ')
+
     def test_reader_handles_short_blocks_and_merged_rooms(self):
         book=Workbook();sheet=book.active
         sheet['B10']='Г-262';sheet['D10']='Г-263'

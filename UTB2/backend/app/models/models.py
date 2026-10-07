@@ -46,6 +46,10 @@ class Schedule(Base):
     time: Mapped[str] = mapped_column(String(20), nullable=False)
     subject: Mapped[str] = mapped_column(String(512), nullable=False)
     room: Mapped[str] = mapped_column(String(620), nullable=False)
+    delivery: Mapped[str] = mapped_column(String(20), server_default='in_person', nullable=False)
+    online_url: Mapped[str] = mapped_column(String(2048), server_default='', nullable=False)
+    meeting_id: Mapped[str] = mapped_column(String(100), server_default='', nullable=False)
+    passcode: Mapped[str] = mapped_column(String(100), server_default='', nullable=False)
 
 
     # relactionships

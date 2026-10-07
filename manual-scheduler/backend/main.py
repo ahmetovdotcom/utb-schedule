@@ -7,6 +7,7 @@ import asyncio
 import time
 import auth
 import publication
+import online
 from analytics import router as analytics_router
 from dotenv import load_dotenv
 
@@ -14,7 +15,7 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal
 
 DB = Path(os.environ.get('SCHEDULER_DB', Path(__file__).with_name('schedule.db')))
@@ -37,7 +38,7 @@ def database(write=False):
       data TEXT NOT NULL, UNIQUE(kind, name));
     CREATE TABLE IF NOT EXISTS lessons (
       id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL REFERENCES refs(id),
-      subject_id INTEGER NOT NULL REFERENCES refs(id), room_id INTEGER NOT NULL REFERENCES refs(id),
+      subject_id INTEGER NOT NULL REFERENCES refs(id), room_id INTEGER REFERENCES refs(id),
       day INTEGER NOT NULL, slot INTEGER NOT NULL, lesson_type TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS lesson_groups (
       lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
@@ -45,8 +46,13 @@ def database(write=False):
     ''')
     con.executescript(auth.SCHEMA)
     con.executescript(publication.SCHEMA)
+    online.migrate(con)
     try:
         con.execute('BEGIN IMMEDIATE')
+        fields = {r['name'] for r in con.execute('PRAGMA table_info(lessons)')}
+        for field, default in [('delivery', 'in_person'), ('online_url', ''), ('meeting_id', ''), ('passcode', '')]:
+            if field not in fields:
+                con.execute(f"ALTER TABLE lessons ADD COLUMN {field} TEXT NOT NULL DEFAULT '{default}'")
         for table in ('refs','lessons'):
             if 'version' not in {r[1] for r in con.execute('PRAGMA table_info('+table+')')}:
                 con.execute('ALTER TABLE '+table+" ADD COLUMN version TEXT NOT NULL DEFAULT ''")
@@ -84,11 +90,31 @@ class Reference(BaseModel):
 class Lesson(BaseModel):
     teacher_id: int
     subject_id: int
-    room_id: int
+    room_id: int | None = None
+    delivery: Literal['in_person', 'online'] = 'in_person'
+    online_url: str = Field(default='', max_length=2048)
+    meeting_id: str = Field(default='', max_length=100)
+    passcode: str = Field(default='', max_length=100)
     group_ids: list[int] = Field(min_length=1)
     day: int = Field(ge=1, le=6)
     slot: int = Field(ge=8, le=20)
     lesson_type: Literal['lecture', 'practice', 'lab'] = 'practice'
+
+    @model_validator(mode='after')
+    def valid_location(self):
+        if self.delivery == 'online':
+            self.room_id = None
+            self.online_url = online.validate_url(self.online_url)
+            self.meeting_id = self.meeting_id.strip()
+            self.passcode = self.passcode.strip()
+            if not self.online_url and not self.meeting_id:
+                raise ValueError('Укажите ссылку или идентификатор конференции')
+        else:
+            if self.room_id is None:
+                raise ValueError('Выберите кабинет')
+            self.online_url = self.meeting_id = self.passcode = ''
+        return self
+
 
 class SaveLesson(Lesson):
     accept_warnings: bool = False
@@ -108,6 +134,7 @@ def lessons(con):
 
 def check(value, all_refs, all_lessons, exclude=None):
     for key, kind in [('teacher_id', 'teachers'), ('subject_id', 'subjects'), ('room_id', 'rooms')]:
+        if key == 'room_id' and value.delivery == 'online': continue
         if all_refs.get(getattr(value, key), {}).get('kind') != kind:
             raise HTTPException(422, 'Выберите существующие предмет, преподавателя и кабинет')
     if len(set(value.group_ids)) != len(value.group_ids) or any(all_refs.get(g, {}).get('kind') != 'groups' for g in value.group_ids):
@@ -118,10 +145,11 @@ def check(value, all_refs, all_lessons, exclude=None):
             continue
         reasons = []
         if row['teacher_id'] == value.teacher_id: reasons.append('Преподаватель занят')
-        if row['room_id'] == value.room_id: reasons.append('Кабинет занят')
+        if value.room_id is not None and row['room_id'] == value.room_id: reasons.append('Кабинет занят')
         if set(row['group_ids']) & set(value.group_ids): reasons.append('Группа занята')
         if reasons:
-            conflicts.append({'lesson_id': row['id'], 'message': ', '.join(reasons), 'room': all_refs[row['room_id']]['name'], 'groups': [all_refs[g]['name'] for g in row['group_ids']]})
+            conflicts.append({'lesson_id': row['id'], 'message': ', '.join(reasons), 'room': all_refs[row['room_id']]['name'] if row['room_id'] is not None else 'Онлайн', 'groups': [all_refs[g]['name'] for g in row['group_ids']]})
+    if value.delivery == 'online': return {'conflicts': conflicts, 'warnings': []}
     room, teacher = all_refs[value.room_id], all_refs[value.teacher_id]
     students = sum(all_refs[g]['students'] for g in value.group_ids)
     warnings = []
@@ -237,7 +265,8 @@ def options(value: Lesson, exclude: int | None = None):
     with database() as con:
         all_refs, all_lessons = refs(con), lessons(con)
         result = []
-        for room in all_refs.values():
+        rooms = [{'id': None, 'kind': 'rooms'}] if value.delivery == 'online' else all_refs.values()
+        for room in rooms:
             if room['kind'] != 'rooms': continue
             for hour in range(8, 21):
                 candidate = value.model_copy(update={'room_id': room['id'], 'slot': hour})
@@ -256,11 +285,11 @@ def save(value, lesson_id=None):
             raise HTTPException(409, result)
         if result['warnings'] and not value.accept_warnings:
             raise HTTPException(409, result)
-        params = (value.teacher_id, value.subject_id, value.room_id, value.day, value.slot, value.lesson_type)
+        params = (value.teacher_id, value.subject_id, value.room_id, value.day, value.slot, value.lesson_type, value.delivery, value.online_url, value.meeting_id, value.passcode)
         if lesson_id is None:
-            lesson_id = con.execute('INSERT INTO lessons(teacher_id,subject_id,room_id,day,slot,lesson_type) VALUES(?,?,?,?,?,?)', params).lastrowid
+            lesson_id = con.execute('INSERT INTO lessons(teacher_id,subject_id,room_id,day,slot,lesson_type,delivery,online_url,meeting_id,passcode) VALUES(?,?,?,?,?,?,?,?,?,?)', params).lastrowid
         else:
-            con.execute('UPDATE lessons SET teacher_id=?,subject_id=?,room_id=?,day=?,slot=?,lesson_type=? WHERE id=?', (*params, lesson_id))
+            con.execute('UPDATE lessons SET teacher_id=?,subject_id=?,room_id=?,day=?,slot=?,lesson_type=?,delivery=?,online_url=?,meeting_id=?,passcode=? WHERE id=?', (*params, lesson_id))
             con.execute('DELETE FROM lesson_groups WHERE lesson_id=?', (lesson_id,))
         con.executemany('INSERT INTO lesson_groups VALUES(?,?)', [(lesson_id,g) for g in value.group_ids])
         return {'id': lesson_id, **result}

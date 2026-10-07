@@ -14,4 +14,8 @@ class LessonResponse(BaseModel):
     time: str
     subject: str
     room: str
+    delivery: str = 'in_person'
+    online_url: str = ''
+    meeting_id: str = ''
+    passcode: str = ''
     model_config = ConfigDict(from_attributes=True)

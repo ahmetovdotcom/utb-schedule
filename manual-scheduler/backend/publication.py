@@ -1,6 +1,7 @@
 """Persist a complete manual-scheduler snapshot before delivering it to UTB2."""
 from datetime import datetime, timezone
 import json
+from online import online_label
 import os
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -74,14 +75,17 @@ def snapshot(con):
             teachers[ref['id']] = {'id': ref['id'], 'title': ref['name'], 'lessons': []}
     for row in rows:
         validate_lesson(row, references, rows)
-        room = references[row['room_id']]
-        # Imported rooms already contain their building; ordinary new rooms do not.
-        building = room.get('building', '').strip()
-        room_title = room['name']
-        if building and not room_title.startswith((building+' / ', building+' · ')):
-            room_title = f'{building} · {room_title}'
+        if row.get('delivery') == 'online':
+            room_title = online_label(row, include_url=False)
+        else:
+            room = references[row['room_id']]
+            building = room.get('building', '').strip()
+            room_title = room['name']
+            if building and not room_title.startswith((building+' / ', building+' · ')):
+                room_title = f'{building} · {room_title}'
         lesson = {'day_of_week': row['day'], 'time': f"{row['slot']:02d}:00-{row['slot']:02d}:50",
                   'subject': references[row['subject_id']]['name'], 'room': room_title}
+        lesson.update({key: row.get(key, 'in_person' if key == 'delivery' else '') for key in ('delivery','online_url','meeting_id','passcode')})
         for group_id in row['group_ids']:
             groups[group_id]['lessons'].append(lesson.copy())
         teachers[row['teacher_id']]['lessons'].append({**lesson, 'id': row['id'],

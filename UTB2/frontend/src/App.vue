@@ -168,7 +168,7 @@ watch([selectedGroup, currentDay, mode], fetchSchedule)
             :key="lesson.id"
             :time="lesson.time"
             :subject="lesson.subject"
-            :room="lesson.room"
+            :room="lesson.room" :delivery="lesson.delivery" :online_url="lesson.online_url" :meeting_id="lesson.meeting_id" :passcode="lesson.passcode"
             :groups="lesson.groups"
           />
         </div>

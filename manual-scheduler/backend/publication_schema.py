@@ -1,6 +1,7 @@
 """Publication contract for manual-scheduler and UTB2; keep identical."""
 from typing import Literal
 from uuid import UUID
+from urllib.parse import urlsplit
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
@@ -14,8 +15,22 @@ class PublishedLesson(StrictModel):
     subject: str = Field(min_length=1, max_length=512)
     room: str = Field(min_length=1, max_length=620)
 
+    delivery: Literal['in_person', 'online'] = 'in_person'
+    online_url: str = Field(default='', max_length=2048)
+    meeting_id: str = Field(default='', max_length=100)
+    passcode: str = Field(default='', max_length=100)
+
     @model_validator(mode="after")
     def valid_interval(self):
+        if self.delivery == 'online':
+            if not self.online_url and not self.meeting_id:
+                raise ValueError('Укажите ссылку или идентификатор конференции')
+            if self.online_url:
+                url = urlsplit(self.online_url)
+                if url.scheme not in ('http', 'https') or not url.hostname or url.username or url.password or any(c.isspace() for c in self.online_url):
+                    raise ValueError('Недопустимая ссылка конференции')
+        elif self.online_url or self.meeting_id or self.passcode:
+            raise ValueError('Реквизиты конференции разрешены только для онлайн-занятия')
         if self.time[:5] >= self.time[6:]:
             raise ValueError("Время окончания должно быть позже начала")
         return self

@@ -13,6 +13,7 @@ import re
 import sqlite3
 from openpyxl import load_workbook
 import main
+from online import parse_location
 
 DAYS = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота']
 TYPE_RE = re.compile(r'\s*[-–]\s*(лекция|лек|практ|пр|лаб|студ)\b[\s.,:]*', re.I)
@@ -84,7 +85,7 @@ def resolve(entries, references):
              for kind in ('groups', 'teachers', 'subjects', 'rooms')}
     result = []
     for entry in entries:
-        row = dict(entry, issues=[])
+        row = dict(entry, issues=[], delivery='in_person', online_url='', meeting_id='', passcode='')
         def assign(field, matches, reason):
             if len(matches) == 1:
                 row[field] = matches[0]['id']
@@ -126,14 +127,18 @@ def resolve(entries, references):
                 if normalize(r.get('building', '')) == normalize(room[1] + ' блок')
                 and normalize(r['name'].split('/')[-1]) == normalize(room[2])], 'room')
         else:
-            row['issues'].append('location')
+            remote = parse_location(row['room'])
+            if remote:
+                row.update(remote)
+            else:
+                row['issues'].append('location')
         result.append(row)
     return result
 
 
 def signature(row):
     subject = ('id', row['subject_id']) if 'subject_id' in row else ('name', normalize(row.get('subject', '')))
-    return (row['day'], row['slot'], row.get('teacher_id'), row.get('room_id'), subject, row.get('lesson_type'))
+    return (row['day'], row['slot'], row.get('teacher_id'), row.get('room_id'), subject, row.get('lesson_type'), row.get('delivery', 'in_person'), row.get('online_url', ''), row.get('meeting_id', ''), row.get('passcode', ''))
 
 
 def overlaps(left, right):
@@ -151,7 +156,7 @@ def make_plan(entries, references, existing):
     accepted = []
     for key, sources in candidates.items():
         first = sources[0]
-        item = {k:first[k] for k in ('day', 'slot', 'teacher_id', 'room_id', 'lesson_type', 'subject')}
+        item = {k:first[k] for k in ('day', 'slot', 'teacher_id', 'room_id', 'lesson_type', 'subject', 'delivery', 'online_url', 'meeting_id', 'passcode')}
         if 'subject_id' in first:
             item['subject_id'] = first['subject_id']
         item['group_ids'] = sorted({r['group_id'] for r in sources})
@@ -198,8 +203,8 @@ def import_file(path, apply=False):
                 if old:
                     lesson_id = old['id']
                 else:
-                    lesson_id = con.execute('INSERT INTO lessons(teacher_id,subject_id,room_id,day,slot,lesson_type) VALUES(?,?,?,?,?,?)',
-                        tuple(item[k] for k in ('teacher_id','subject_id','room_id','day','slot','lesson_type'))).lastrowid
+                    lesson_id = con.execute('INSERT INTO lessons(teacher_id,subject_id,room_id,day,slot,lesson_type,delivery,online_url,meeting_id,passcode) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        tuple(item[k] for k in ('teacher_id','subject_id','room_id','day','slot','lesson_type','delivery','online_url','meeting_id','passcode'))).lastrowid
                     created += 1
                 for group_id in item['group_ids']:
                     linked += con.execute('INSERT OR IGNORE INTO lesson_groups(lesson_id,group_id) VALUES(?,?)', (lesson_id,group_id)).rowcount

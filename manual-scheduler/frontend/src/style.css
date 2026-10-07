@@ -13,3 +13,5 @@ main{max-width:none;padding:18px 20px 24px}.header{height:66px;padding:0 22px}.w
 .publication-status{margin:0 0 14px}.header{gap:24px}.header>.primary{white-space:nowrap}@media(max-width:750px){.header{height:auto;min-height:66px;flex-wrap:wrap;padding:10px;gap:8px}.header>.primary{font-size:12px;padding:9px 12px}}
 
 .export-controls{display:flex;gap:10px;align-items:center}.export-toolbar{flex-wrap:wrap;gap:12px}.export-controls select{min-width:135px}
+
+.online-row .lesson{height:auto;margin-bottom:4px;cursor:context-menu}.online-row .empty-cell{height:32px}.online-row th{background:#f0f5f1!important}
